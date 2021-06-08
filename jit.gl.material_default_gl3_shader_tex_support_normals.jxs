@@ -1,0 +1,330 @@
+<jittershader name="jit.gl.material_default_gl3_shader_tex_support.jxs">
+	<description>
+		// imported gl3 shader for the default jit.gl.material
+		// added texture sampling support where noted
+		// additions by Tim Georg Heinze, (c) www.xenorama.com
+	</description>
+	<param name="modelViewProjectionMatrix" type="mat4" state="MODELVIEW_PROJECTION_MATRIX" />
+	<param name="modelViewMatrix" type="mat4" state="MODELVIEW_MATRIX" />
+	<param name="jit_position" type="vec3" state="POSITION" />
+	<param name="jit_normal" type="vec3" state="NORMAL" />
+	<param name="LightingParameters" state="LIGHT" />
+	<param name="FrontMaterialParameters" state="FRONT_MATERIAL" />
+	<param name="FogParameters" state="FOG" />
+
+  // add texture support
+  <param name="projectionMatrix" type="mat4" state="PROJECTION_MATRIX" />
+  <param name="jit_texcoord" type="vec2" state="TEXCOORD" />
+  <param name="textureMatrix0" type="mat4" state="TEXTURE0_MATRIX" />
+  <param name="tex0" type="int" default="0" />
+
+	<param name="iResolution" type="float" default="512. 512." />
+	<param name="ext" type="float" default="1." />
+
+	<language name="glsl" version="1.5">
+		<bind param="modelViewProjectionMatrix" program="vs" />
+		<bind param="modelViewMatrix" program="vs" />
+		<bind param="jit_position" program="vs" />
+		<bind param="jit_normal" program="vs" />
+		<bind param="LightingParameters" program="fs" />
+		<bind param="FrontMaterialParameters" program="fs" />
+		<bind param="FogParameters" program="fs" />
+
+    // add texture support in vs and also fs
+    <bind param="projectionMatrix" program="vs" />
+    <bind param="textureMatrix0" program="vs" />
+    <bind param="jit_texcoord" program="vs" />
+    <bind param="tex0" program="vs" />
+    <bind param="tex0" program="fs" />
+
+		<bind param="iResolution" program="vs" />
+		<bind param="ext" program="vs" />
+
+
+		<program name="vs" type="vertex">
+			<![CDATA[
+			#version 330 core
+
+			in vec3 jit_position;
+			in vec3 jit_normal;
+      // add texture support inputs and uniforms
+      in vec2 jit_texcoord; // +
+      out jit_PerVertex {
+        vec4 jit_texcolor; // +
+        vec2 jit_texcoord0; // +
+        vec4 jit_Surface_position;
+        vec3 jit_Surface_normal;
+      } jit_out;
+			uniform mat4 modelViewProjectionMatrix;
+			uniform mat4 modelViewMatrix;
+      uniform mat4 projectionMatrix; // +
+      uniform mat4 textureMatrix0; // +
+      uniform sampler2DRect tex0; // +
+			uniform vec2 iResolution;
+
+      // add brightness coefficient vector (luma)
+      vec3 luma = vec3(0.2126,0.7152,0.0722);
+			uniform float ext; // depth (extrusion)
+
+			vec3 filter_normal(vec2 uv , float texelsize , sampler2D tex ) {
+				float h0 = texture(tex, uv + texelsize * vec2(0, -1)).r;
+				float h1 = texture(tex, uv + texelsize * vec2(-1, 0)).r;
+				float h2 = texture(tex, uv + texelsize * vec2(1, 0)).r;
+				float h3 = texture(tex, uv + texelsize * vec2(0, 1)).r;
+				vec2 step = vec2(1.0, 0.0);
+				vec3 va = normalize(vec3(step.xy, h1 - h0));
+				vec3 vb = normalize(vec3(step.yx, h3 - h2));
+				return cross(va, vb);
+			}
+			vec4 sample_vertex(vec2 uv , sampler2D tex , vec3 normal ) {
+				float height = texture(tex, uv).r;
+				vec4 vert = modelViewMatrix * vec4(jit_position, 1.);
+				return vert + normalize(vec4(normal, 1.0)) * height;
+			}
+
+			float getHeight(vec2 uv) {
+			  return texture(tex0, uv).r;
+			}
+
+			vec4 bumpFromDepth(vec2 uv, vec2 resolution, float scale) {
+			  vec2 step = 1. / resolution;
+
+			  float height = getHeight(uv);
+
+			  vec2 dxy = height - vec2(
+			      getHeight(uv + vec2(step.x, 0.)),
+			      getHeight(uv + vec2(0., step.y))
+			  );
+
+			  return vec4(normalize(vec3(dxy * scale / step, 1.)), height);
+			}
+
+			vec4 normalMap(vec2 fragCoord)
+			{
+				vec2 uv = fragCoord.xy / iResolution.xy;
+				return vec4(bumpFromDepth(uv, iResolution.xy, .1).rgb * .5 + .5, 1.);
+			}
+
+			void main() {
+        // add texture sampling
+        jit_out.jit_texcoord0 = vec2(textureMatrix0*vec4(jit_texcoord, 0., 1.));
+        vec4 texColor = texture(tex0, jit_out.jit_texcoord0);
+
+				// map texel brightness to z-axis position
+        float lumCoeff = dot(texColor.rgb,luma) * ext; // calculate luma coefficient
+
+        vec4 displacement = vec4(jit_position,1.) + vec4(0.0, 0.0, lumCoeff, 0.0);
+        vec4 modifiedVertices = modelViewMatrix * displacement;
+
+				// vec4 normals = normalMap(vec2(jit_out.jit_texcoord0));
+
+				jit_out.jit_Surface_normal = transpose(inverse(mat3x3(modelViewMatrix))) * normalMap(jit_texcoord).xyz;
+				// jit_out.jit_Surface_normal = transpose(inverse(mat3x3(modelViewMatrix))) * jit_normal;
+        jit_out.jit_Surface_position = modifiedVertices; //modelViewMatrix * vec4(jit_position, 1.);
+        // use texture as color
+        jit_out.jit_texcolor = texColor;
+        gl_Position = modelViewProjectionMatrix*displacement; // modelViewProjectionMatrix*vec4(jit_position, 1.);
+			}
+		]]>
+		</program>
+		<program name="fs" type="fragment">
+			<![CDATA[
+			#version 330 core
+			struct MaterialParameters {
+				vec4 emission;
+				vec4 ambient;
+				vec4 diffuse;
+				vec4 specular;
+				float shininess;
+			};
+			struct LightModelParameters {
+				vec4 ambient;
+			};
+			struct LightSourceParameters {
+				vec4 ambient;
+				vec4 diffuse;
+				vec4 specular;
+				vec4 position;
+				vec3 spotDirection;
+				float spotExponent;
+				float spotCutoff;
+				float spotCosCutoff;
+				float constantAttenuation;
+				float linearAttenuation;
+				float quadraticAttenuation;
+			};
+      // add texture support in fs
+      in jit_PerVertex {
+				vec4 jit_Surface_position;
+				vec3 jit_Surface_normal;
+        vec4 jit_texcolor; // +
+        vec2 jit_texcoord0; // +
+			} jit_in;
+			layout (location = 0) out vec4 outColor;
+			layout (std140) uniform LightingParameters {
+				LightModelParameters lightModel;
+				LightSourceParameters light[1];
+			};
+
+			layout (std140) uniform FrontMaterialParameters {
+				MaterialParameters frontMaterial;
+			};
+			layout (std140) uniform FogParameters {
+				vec4 color;
+				float density;
+				float start;
+				float end;
+				float scale;
+			} fog;
+			#define PI (3.1415926535898)
+
+			#define jit_LightModel lightModel
+
+			struct Material {
+				vec4 color;
+			} ;
+			struct Light {
+				vec4 ambient;
+				vec4 diffuse;
+				vec4 specular;
+				vec3 toEyePosition;
+			} ;
+			float lambertian(vec3 Nn , vec3 L ) {
+				return max(dot(Nn, L), 0.);
+			}
+			float oren_nayer(vec3 Vn , vec3 Nn , vec3 L , float roughness ) {
+				float roughness2 = roughness * roughness;
+				float A = 1. - (0.5 * roughness2) / (roughness2 + 0.33);
+				float B = (0.45 * roughness2) / (roughness2 + 0.09);
+				float VdotN = dot(Vn, Nn);
+				float LdotN = dot(L, Nn);
+				float irradiance = max(0., LdotN);
+				float cos_delta_angle = max(0., dot(normalize(Vn - Nn * VdotN), normalize(L - Nn * LdotN)));
+				float theta_r = acos(VdotN);
+				float theta_i = acos(LdotN);
+				float alpha = max(theta_i, theta_r);
+				float beta = min(theta_i, theta_r);
+				float profile = sin(alpha) * tan(beta);
+				return (A + B * cos_delta_angle * profile) * irradiance;
+			}
+			float oren_nayer_lut(sampler2D ONtex , vec3 Vn , vec3 Nn , vec3 L , float roughness ) {
+				float roughness2 = roughness * roughness;
+				float A = 1. - (0.5 * roughness2) / (roughness2 + 0.33);
+				float B = (0.45 * roughness2) / (roughness2 + 0.09);
+				float VdotN = dot(Vn, Nn);
+				float LdotN = dot(L, Nn);
+				float irradiance = max(0., LdotN);
+				float cos_delta_angle = max(0., dot(normalize(Vn - Nn * VdotN), normalize(L - Nn * LdotN)));
+				float profile = texture(ONtex, vec2(VdotN, LdotN) * 0.5 + 0.5).r;
+				return (A + B * cos_delta_angle * profile) * irradiance;
+			}
+			float toon(vec3 Nn , vec3 L , float size , float smoothfactor ) {
+				float v = dot(Nn, L);
+				float thresh = 1. - size;
+				return smoothstep(thresh - 0.5 * smoothfactor, thresh + 0.5 * smoothfactor, v);
+			}
+			float minnaert(vec3 Vn , vec3 Nn , vec3 L , float darkness ) {
+				float NL = max(dot(Nn, L), 0.);
+				float NV = max(dot(Nn, Vn), 0.);
+				return pow(NL, darkness + 1.) * pow(1. - NV, 1. - darkness);
+			}
+			float blinn(vec3 Vn , vec3 Nn , vec3 L , float Ns ) {
+				vec3 H = normalize(L + Vn);
+				return pow(max(dot(Nn, H), 0.), Ns);
+			}
+			float specular_phong(vec3 Vn , vec3 Nn , vec3 L , float Ns ) {
+				vec3 R = reflect(-L, Nn);
+				return pow(max(dot(R, Vn), 0.), Ns);
+			}
+			float toonspecular(vec3 Vn , vec3 Nn , vec3 L , float Ns , float size , float smoothfactor ) {
+				vec3 H = normalize(L + Vn);
+				float v = pow(max(dot(Nn, H), 0.), Ns);
+				float thresh = 1. - size;
+				return smoothstep(thresh - 0.5 * smoothfactor, thresh + 0.5 * smoothfactor, v);
+			}
+			float ward(vec3 Vn , vec3 Nn , vec3 L , float rms ) {
+				vec3 H = normalize(Vn + L);
+				float NH = max(dot(Nn, H), 0.);
+				float NV = max(dot(Nn, Vn), 0.);
+				float NL = max(dot(Nn, L), 0.);
+				float alpha = max(rms, 0.001);
+				float angle = acos(NH);
+				float angle2 = angle * angle;
+				float alpha2 = alpha * alpha;
+				return NL * 0.25 * (1.0 / alpha2) * exp(-2. * angle2 / alpha2);
+			}
+			float cook_torrance(vec3 Vn , vec3 Nn , vec3 L , float rms ) {
+				vec3 H = normalize(Vn + L);
+				float NH = max(dot(Nn, H), 0.);
+				float VH = max(dot(Vn, H), 0.);
+				float NV = max(dot(Nn, Vn), 0.);
+				float NL = max(dot(Nn, L), 0.);
+				float factor = min(NV, NL);
+				float G = min(1., 2. * NH * factor / VH);
+				float alpha = acos(NH);
+				float exponent = alpha / rms;
+				float D = exp(-exponent * exponent);
+				return D * G / (0.001 + NV);
+			}
+			vec2 sphere_map(vec3 v ) {
+				float m = 2. * sqrt(v.x * v.x + v.y * v.y + (v.z + 1.) * (v.z + 1.));
+				return vec2(v) / m + 0.5;
+			}
+			vec4 fog_linear(vec4 color , float dist ) {
+				float fogfactor = (fog.end - dist) * fog.scale;
+				fogfactor = clamp(fogfactor, 0., 1.);
+				return mix(fog.color, color, fogfactor);
+			}
+			vec4 fog_exp(vec4 color , float dist ) {
+				float fogfactor = exp(-fog.density * dist);
+				fogfactor = clamp(fogfactor, 0., 1.);
+				return mix(fog.color, color, fogfactor);
+			}
+			vec4 fog_exp2(vec4 color , float dist ) {
+				float fogfactor = exp(-fog.density * fog.density * dist * dist);
+				fogfactor = clamp(fogfactor, 0., 1.);
+				return mix(fog.color, color, fogfactor);
+			}
+			vec4 btex2D(sampler2D map , vec2 uv , float radius , float steps ) {
+				float stepSize = 2.0 * radius / steps;
+				uv.xy -= vec2(radius, radius);
+				vec4 total = vec4(0, 0, 0, 0);
+				for(int x = 0; x < steps; ++x) for(int y = 0; y < steps; ++y) total += texture(map, vec2(uv.xy + vec2(x * stepSize, y * stepSize)));
+				return total / (steps * steps);
+			}
+			float compute_shadow(sampler2D shadowMap , vec4 shadowMapPos , float ourDepth , vec3 param ) {
+				vec2 suv = (shadowMapPos.xy / shadowMapPos.w) * 0.5 + 0.5;
+				vec2 moments = btex2D(shadowMap, suv, param.x, 4).xy;
+				float litFactor = (ourDepth <= moments.x ? 1 : 0);
+				float variance = clamp((moments.y - (moments.x * moments.x)), param.y, 1.0);
+				float m_d = moments.x - ourDepth;
+				float p = variance / (variance + m_d * m_d);
+				return smoothstep(param.z, 1.0, max(litFactor, p));
+			}
+			Material jit_Material;
+			Light jit_Light [8];
+			void main() {
+				jit_Material.color = vec4(0., 0., 0., 0.);
+				vec3 jit_Surface_view = -vec3(jit_in.jit_Surface_position);
+				vec3 Vn = normalize(jit_Surface_view);
+				vec3 Nn = normalize(jit_in.jit_Surface_normal);
+				jit_Light[0].toEyePosition = normalize(jit_in.jit_Surface_position.xyz - light[0].position.xyz);
+				float d3 = length(jit_in.jit_Surface_position.xyz - light[0].position.xyz);
+				float atten4 = light[0].constantAttenuation + light[0].linearAttenuation * d3 + light[0].quadraticAttenuation * d3 * d3;
+				atten4 = 1.0 / atten4;
+				jit_Light[0].ambient = light[0].ambient * atten4;
+				jit_Light[0].diffuse = light[0].diffuse * atten4;
+				jit_Light[0].specular = light[0].specular * atten4;
+				vec3 jit_Surface_toLight1 = -jit_Light[0].toEyePosition;
+				vec3 L2 = normalize(jit_Surface_toLight1);
+				jit_Material.color += frontMaterial.emission;
+				jit_Material.color += frontMaterial.ambient * (jit_Light[0].ambient + jit_LightModel.ambient);
+				jit_Material.color += frontMaterial.diffuse * jit_Light[0].diffuse * lambertian(Nn, L2);
+				jit_Material.color += frontMaterial.specular * jit_Light[0].specular * blinn(Vn, Nn, L2, frontMaterial.shininess);
+        // use sampled texture as color
+        outColor = jit_Material.color * jit_in.jit_texcolor;
+			}
+		]]>
+		</program>
+	</language>
+</jittershader>
