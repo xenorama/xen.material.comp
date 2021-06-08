@@ -40,13 +40,25 @@
 		"assistshowspatchername" : 0,
 		"boxes" : [ 			{
 				"box" : 				{
+					"fontname" : "Lato",
+					"id" : "obj-6",
+					"maxclass" : "comment",
+					"numinlets" : 1,
+					"numoutlets" : 0,
+					"patching_rect" : [ 300.0, 651.0, 409.0, 21.0 ],
+					"text" : "translated by Timo Hoogland"
+				}
+
+			}
+, 			{
+				"box" : 				{
 					"fontface" : 1,
 					"fontname" : "Lato",
 					"id" : "obj-1",
 					"maxclass" : "comment",
 					"numinlets" : 1,
 					"numoutlets" : 0,
-					"patching_rect" : [ 301.0, 347.0, 388.0, 21.0 ],
+					"patching_rect" : [ 300.0, 292.0, 388.0, 21.0 ],
 					"text" : "GLSL"
 				}
 
@@ -346,7 +358,7 @@
 					"maxclass" : "comment",
 					"numinlets" : 1,
 					"numoutlets" : 0,
-					"patching_rect" : [ 301.0, 373.0, 409.0, 323.0 ],
+					"patching_rect" : [ 300.0, 318.0, 409.0, 323.0 ],
 					"text" : "float getHeight(vec2 uv) {\n  return texture(iChannel0, uv).r;\n}\n\nvec4 bumpFromDepth(vec2 uv, vec2 resolution, float scale) {\n  vec2 step = 1. / resolution;\n    \n  float height = getHeight(uv);\n    \n  vec2 dxy = height - vec2(\n      getHeight(uv + vec2(step.x, 0.)), \n      getHeight(uv + vec2(0., step.y))\n  );\n    \n  return vec4(normalize(vec3(dxy * scale / step, 1.)), height);\n}\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord)\n{\n  vec2 uv = fragCoord.xy / iResolution.xy;\n  fragColor = vec4(bumpFromDepth(uv, iResolution.xy, .1).rgb * .5 + .5, 1.);\n}"
 				}
 

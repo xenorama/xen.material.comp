@@ -536,13 +536,14 @@
 					"fontname" : "Lato",
 					"fontsize" : 12.0,
 					"id" : "obj-26",
+					"linecount" : 2,
 					"maxclass" : "comment",
 					"numinlets" : 1,
 					"numoutlets" : 0,
-					"patching_rect" : [ 349.33333432674408, 545.281546100974083, 28.0, 21.0 ],
+					"patching_rect" : [ 349.33333432674408, 545.281546100974083, 28.0, 35.0 ],
 					"presentation" : 1,
-					"presentation_rect" : [ 55.800167262554169, 413.830904170870781, 28.0, 21.0 ],
-					"text" : "cpu"
+					"presentation_rect" : [ 55.800167262554169, 413.830904170870781, 46.0, 21.0 ],
+					"text" : "via cpu"
 				}
 
 			}
