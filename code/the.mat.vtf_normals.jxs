@@ -49,6 +49,8 @@
 			// todo:
 			// • avoid linear glitches occuring on rare occasions across the normalmap
 			// • inherit texture dimension in Jitter on GL3
+			// • support custom modulation of material colors natively available in jit.gl.material
+			// (requires additional texture params and mapping)
 			// ——————————————————————————————————————————————————————————————————————————————————————————
 
 			#version 330 core
