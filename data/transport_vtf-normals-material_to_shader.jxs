@@ -1,0 +1,174 @@
+//
+// steps to import the material shader for heightmap_mode vtf_normals in gl3
+//
+
+// introduce a second texture (index 1) to be handled as sampler2DRect,
+// afaik both Sampler2D and Sampler2DRect cannot be used on same texture
+<param name="heightmap2normals" type="int" default="1" />
+<param name="textureMatrix1" type="mat4" state="TEXTURE1_MATRIX" /> // note the numeric indices in name and state
+
+// bind texture to fragment jittershader
+<bind param="heightmap2normals" program="fs" />
+<bind param="textureMatrix1" program="vs" />
+
+// since the normals will be calculted in the fragment shader now
+// the jit_Surface_filtered_normals can be removed and not passed down
+
+out jit_PerVertex {
+  …
+  vec3 jit_Surface_bitangent;
+  // vec3 jit_Surface_filtered_normal;    <-- comment out or remove
+  vec2 jit_Surface_texcoord0;
+  …
+}
+
+// the entire normal calculation in the vertex shader can be removed or commented out
+
+
+#remove:
+// vec3 filter_normal(vec2 uv , float texelsize , sampler2D tex ) {
+// 	float scale = normal_scale * 100.0;
+// 	float h0 = texture(tex, uv + texelsize * vec2(0, -1)).r * scale;
+// 	float h1 = texture(tex, uv + texelsize * vec2(-1, 0)).r * scale;
+// 	float h2 = texture(tex, uv + texelsize * vec2(1, 0)).r * scale;
+// 	float h3 = texture(tex, uv + texelsize * vec2(0, 1)).r * scale;
+// 	vec2 step = vec2(1.0, 0.0);
+// 	vec3 va = normalize(vec3(step.xy, h1 - h0));
+// 	vec3 vb = normalize(vec3(step.yx, h3 - h2));
+// 	return cross(va, vb);
+// }
+
+// remove also the relevant entry from the main functon in the vs
+
+void main() {
+
+  jit_out.jit_Surface_texcoord0 = vec2(textureMatrix0 * vec4(jit_texcoord, 0., 1.));
+  jit_out.sampled_heightmap = texture (heightmap, jit_out.jit_Surface_texcoord0);
+  jit_out.jit_Surface_tangent = transpose(inverse(mat3x3(modelViewMatrix))) * jit_Tangent;
+  jit_out.jit_Surface_normal = transpose(inverse(mat3x3(modelViewMatrix))) * jit_normal;
+  // jit_out.jit_Surface_filtered_normal = filter_normal(jit_out.jit_Surface_texcoord0, 0.01, heightmap);  <-- remove
+  jit_out.jit_Surface_bitangent = cross(jit_out.jit_Surface_normal, jit_out.jit_Surface_tangent);
+  vec4 pos = sample_vertex(jit_out.jit_Surface_texcoord0, heightmap, jit_out.jit_Surface_normal);
+  gl_Position = projectionMatrix * pos;
+  jit_out.jit_Surface_position = modelViewMatrix * pos;
+  …
+}
+
+// remove also the filtered-normal entries in the fragment shader since they will no longer be used
+
+in jit_PerVertex {
+  vec3 jit_Surface_bitangent;
+  // vec3 jit_Surface_filtered_normal;  <--- remove
+  vec2 jit_Surface_texcoord0;
+  …
+}
+
+
+// add the texture1 as sampler2DRect and normal calulcation in the fragment jittershader
+
+uniform sampler2D heightmap2normals;
+
+float getHeight(vec2 uv) {
+  return texture(heightmap2normals, uv).r;
+}
+
+vec3 bumpFromDepth(vec2 uv, vec2 resolution, float scale) {
+  vec2 step = 1. / resolution;
+
+  float height = getHeight(uv);
+
+  vec2 dxy = height - vec2(
+      getHeight(uv + vec2(step.x, 0.)),
+      getHeight(uv + vec2(0., step.y))
+  );
+
+  return vec3(normalize(vec3(dxy * scale / step, 1.)));
+}
+
+// replace the original normals-usage from the vertex shader by the call of the above function in the fragment jittershader
+
+remove:
+// vec3 Nn = normalize(jit_in.jit_Surface_filtered_normal);
+
+// instead add
+vec2 iResolution = vec2(256,256);
+vec3 Nn = normalize((vec3(bumpFromDepth(jit_in.jit_Surface_texcoord0, iResolution.xy, 1).rgb * .5 + .5) * 2. - 1.).xyz);
+
+// note that iResolution can also be passed down from the vertex shader and is hard-coded here as
+// texture with 256x256 pixels.
+// values not matching the texture size will cause aliasing glitches on the surface
+// can easily be controlled from max as uniform vector
+// code examples to watch texture size from within the shader in sh.passthrudim.vp.glsl are perhaps not compatible with gl3
+
+
+// if we want to add texture support for mat_diffuse, specular, ambient etc. we must include the corresponding textures in our code and
+// bind them to the fragment program
+// the order in which they are listed does not seem to matter, however, make sure all indices are allocated correctly!
+// include them only if you know you'll use them
+
+// the id always specifies the position in the list (0-based) of textures a jit.gl.mesh uses
+<param name="heightmap" type="int" default="0" /> // this handling is explained above, along with "normalmap"
+<param name="emission" type="int" default="3" />
+<param name="glossmap" type="int" default="2" />
+<param name="specular" type="int" default="4" />
+<param name="diffuse" type="int" default="1" />
+<param name="ambient" type="int" default="5" />
+// <param name="textureMatrix5" type="mat4" state="TEXTURE5_MATRIX" />
+// <param name="textureMatrix0" type="mat4" state="TEXTURE0_MATRIX" />
+// <param name="textureMatrix3" type="mat4" state="TEXTURE3_MATRIX" />
+// <param name="textureMatrix4" type="mat4" state="TEXTURE4_MATRIX" />
+// <param name="textureMatrix2" type="mat4" state="TEXTURE2_MATRIX" />
+// <param name="textureMatrix1" type="mat4" state="TEXTURE1_MATRIX" />  // note the numeric index in name/state!
+
+// bind texture to fragment jittershader
+<bind param="heightmap" program="vs" />
+<bind param="emission" program="fs" />
+<bind param="glossmap" program="fs" />
+<bind param="specular" program="fs" />
+<bind param="diffuse" program="fs" />
+<bind param="ambient" program="fs" />
+// <bind param="textureMatrix5" program="vs" />
+// <bind param="textureMatrix0" program="vs" />
+// <bind param="textureMatrix3" program="vs" />
+// <bind param="textureMatrix4" program="vs" />
+// <bind param="textureMatrix2" program="vs" />
+// <bind param="textureMatrix1" program="vs" /> // note the numeric index in name/state!
+
+// then in the fragment shader, we need to provide the textures accordingly
+uniform samplerJit1 diffuse; // if diffuse is not first texture (id #0), otherwise «Jit0»
+uniform samplerJit4 specular;
+uniform samplerJit3 emission;
+uniform samplerJit2 glossmap;
+uniform samplerJit5 ambient;
+
+// to sample from the provided textures, use in void() function
+void main() {
+  …
+  vec4 diffuse_tex = texture(diffuse, jit_in.jit_Surface_texcoord1);
+  vec4 specular_tex = texture(specular, jit_in.jit_Surface_texcoord4); // note the texcoord IDs !!!!
+  vec4 glossmap_tex = texture(glossmap, jit_in.jit_Surface_texcoord2);
+  vec4 ambient_tex = texture(ambient, jit_in.jit_Surface_texcoord5);
+  vec4 emission_tex = texture(emission, jit_in.jit_Surface_texcoord3);
+  …
+
+// then use the different textures in the following ways, respectively:
+// make sure the following order remains untouched! (even though it's all multiplications)
+
+// glossmap (only first plane: RED)
+  float shininess3 = frontMaterial.shininess * glossmap_tex.r;
+    // make sure the shininess3 param is used in the specular model, an example using blinn (default)
+      float mat_specular5 = blinn(Vn, Nn, L2, shininess3);
+
+// emissionmap
+  jit_Material.color += frontMaterial.emission * emission_tex;
+
+// diffusemap
+  jit_Material.color += frontMaterial.ambient * (jit_Light[0].ambient + jit_LightModel.ambient) * diffuse_tex;
+	jit_Material.color += frontMaterial.diffuse * jit_Light[0].diffuse * mat_diffuse4 * diffuse_tex;
+
+// specularmap
+  jit_Material.color += frontMaterial.specular * jit_Light[0].specular * mat_specular5 * specular_tex;
+
+// ambientmap
+  jit_Material.color *= ambient_tex;
+        }

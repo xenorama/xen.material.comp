@@ -1,0 +1,108 @@
+<jittershader name="the.normalmap.jxs">
+	<description>
+		"Calculate a normal map from a heightmap using jit.gl.slab"
+	</description>
+	<param name="scale" type="float" default="1.0" /> // scale the normalmap. The default is '1'
+	<param name="tex0" type="int" default="0" />
+	<param name="modelViewProjectionMatrix" type="mat4" state="MODELVIEW_PROJECTION_MATRIX" />
+	<param name="textureMatrix0" type="mat4" state="TEXTURE0_MATRIX" />
+	<param name="position" type="vec3" state="POSITION" />
+	<param name="texcoord" type="vec2" state="TEXCOORD" />
+	<param name="dim" type="vec2" default="256 256" /> // dimension of incoming texture. The default is 256x256
+	<language name="glsl" version="1.5">
+		<bind param="scale" program="fp" />
+		<bind param="tex0" program="fp" />
+		<bind param="modelViewProjectionMatrix" program="vp" />
+		<bind param="textureMatrix0" program="vp" />
+		<bind param="position" program="vp" />
+		<bind param="texcoord" program="vp" />
+		<bind param="dim" program="fp" />
+		<program name="vp" type="vertex"  >
+		<![CDATA[
+
+		// ——————————————————————————————
+		// written by Tim Heinze © 2021
+		// www.xenorama.com
+		// MIT License
+		// ——————————————————————————————————————————————————————————————————————————————————————————
+		// description:
+		// calculate a normalmap from a heightmap texture using jit.gl.slab in Jitter.
+		//
+		// the original code was translated from:
+		// https://www.shadertoy.com/view/MsScRt
+		// originally written by dmmn on 2017-04-27
+		// ——————————————————————————————————————————————————————————————————————————————————————————
+		// todo:
+		// • avoid linear glitches occuring on rare occasions across the normalmap
+		// • inherit texture dimension in Jitter on GL3
+		// ——————————————————————————————————————————————————————————————————————————————————————————
+
+			#version 330 core
+
+			in vec3 position;
+			in vec2 texcoord;
+			out jit_PerVertex {
+				vec2 texcoord;
+			} jit_out;
+			uniform mat4 modelViewProjectionMatrix;
+			uniform mat4 textureMatrix0;
+
+			void main()
+			{
+				gl_Position = modelViewProjectionMatrix*vec4(position, 1.);
+				jit_out.texcoord = vec2(textureMatrix0*vec4(texcoord, 0., 1.));
+			}
+
+		]]>
+		</program>
+
+		<program name="fp" type="fragment"  >
+		<![CDATA[
+			#version 330 core
+
+			in jit_PerVertex {
+				vec2 texcoord;
+			} jit_in;
+			layout (location = 0) out vec4 outColor;
+
+
+			// provide texture and scale parameter
+
+			uniform sampler2D tex0;
+			uniform float scale;
+			uniform vec2 dim;
+
+			// get height from heightmap texture
+
+			float getHeight(vec2 uv) {
+				return texture(tex0, uv).r;
+			}
+
+			// calculate normalmap
+
+			vec4 bumpFromDepth(vec2 uv, vec2 resolution, float scale) {
+				vec2 step = 1. / resolution;
+
+				float height = getHeight(uv);
+
+				vec2 dxy = height - vec2(
+						getHeight(uv + vec2(step.x, 0.)),
+						getHeight(uv + vec2(0., step.y))
+				);
+
+				return vec4(normalize(vec3(dxy * scale / step, 1.)), height);
+			}
+
+			// main function
+
+			void main()
+			{
+				vec2 uv = jit_in.texcoord;
+				outColor = vec4(bumpFromDepth(uv, dim, scale).rgb * .5 + .5, 1.);
+
+			}
+
+		]]>
+		</program>
+	</language>
+</jittershader>
